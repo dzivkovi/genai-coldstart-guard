@@ -20,7 +20,14 @@ class ChatRequest(BaseModel):
     messages: list[Message]
     conversation_id: Optional[str] = None
     # The source OpenAPI marks this readOnly, but it is useful for local mock routing.
-    route: Optional[str] = None
+    route: Optional[str] = Field(
+        default=None,
+        description=(
+            "Mock mode only: selects the simulated outcome (see the request examples "
+            "dropdown, e.g. mock:success_fast, mock:cold_start_timeout, "
+            "mock:databricks_stopped). Ignored when BACKEND_MODE=databricks."
+        ),
+    )
 
 
 class Citation(BaseModel):

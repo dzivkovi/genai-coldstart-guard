@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Response
+from typing import Annotated
+
+from fastapi import Body, FastAPI, Response
 from fastapi.responses import JSONResponse
 
 from app.config import settings
@@ -50,6 +52,92 @@ async def health() -> dict[str, str]:
     }
 
 
+def _example(route: str) -> dict:
+    """Build a chat request body that targets a given mock route."""
+    return {
+        "messages": [{"role": "user", "content": "Hello"}],
+        "conversation_id": "demo-1",
+        "route": route,
+    }
+
+
+# Named request examples rendered as a dropdown in Swagger. Documentation only
+# (OpenAPI metadata): they do not constrain the `route` field or change behaviour.
+# They describe mock-mode outcomes; in databricks mode `route` is ignored.
+CHAT_EXAMPLES = {
+    "warm_success": {
+        "summary": "Warm success (payload 200)",
+        "description": "Endpoint is warm; returns a normal answer.",
+        "value": _example("mock:success_fast"),
+    },
+    "slow_success": {
+        "summary": "Slow success (payload 200, ~5s)",
+        "description": "Warm but slow response.",
+        "value": _example("mock:success_slow"),
+    },
+    "cold_start_warming": {
+        "summary": "Cold start / warming (payload 503)",
+        "description": "First request after idle times out warming up; returns the 'service is starting' message.",
+        "value": _example("mock:cold_start_timeout"),
+    },
+    "cold_start_lifecycle": {
+        "summary": "Cold start lifecycle (stateful)",
+        "description": "Warming for the first few calls, then succeeds; re-cools after idle. Send repeatedly to watch the transition.",
+        "value": _example("mock:cold_start"),
+    },
+    "stopped": {
+        "summary": "Endpoint stopped (payload 503)",
+        "description": "Admin-stopped endpoint; returns the 'currently stopped' message.",
+        "value": _example("mock:databricks_stopped"),
+    },
+    "updating": {
+        "summary": "Endpoint updating (payload 503)",
+        "description": "Endpoint is updating / not ready.",
+        "value": _example("mock:databricks_updating"),
+    },
+    "bad_request": {
+        "summary": "Bad request (payload 400)",
+        "description": "Invalid input; returns a controlled 400.",
+        "value": _example("mock:bad_request"),
+    },
+    "guardrail_blocked": {
+        "summary": "Guardrail blocked (payload 400)",
+        "description": "Request outside the allowed scope.",
+        "value": _example("mock:guardrail_blocked"),
+    },
+    "no_grounding": {
+        "summary": "No grounding (payload 200)",
+        "description": "Answers that there is not enough information in approved documents.",
+        "value": _example("mock:no_grounding"),
+    },
+    "auth_error": {
+        "summary": "Auth/config error (payload 503)",
+        "description": "Auth failure mapped to a safe 'temporarily unavailable' message.",
+        "value": _example("mock:auth_error"),
+    },
+    "upstream_503": {
+        "summary": "Upstream unavailable (payload 503)",
+        "description": "Transient upstream 5xx mapped to 'temporarily unavailable'.",
+        "value": _example("mock:upstream_503"),
+    },
+    "state_ready": {
+        "summary": "State -> ready (real classifier)",
+        "description": "Runs a fake state (READY / NOT_UPDATING) through the real classify_state().",
+        "value": _example("mock:state:READY:NOT_UPDATING"),
+    },
+    "state_stopped": {
+        "summary": "State -> stopped (real classifier)",
+        "description": "Fake state NOT_READY / NOT_UPDATING, classified as stopped.",
+        "value": _example("mock:state:NOT_READY:NOT_UPDATING"),
+    },
+    "state_updating": {
+        "summary": "State -> updating (real classifier)",
+        "description": "Fake state READY / IN_PROGRESS, classified as updating.",
+        "value": _example("mock:state:READY:IN_PROGRESS"),
+    },
+}
+
+
 @app.post(
     "/agentservice/agent/chat",
     tags=["AI Agents"],
@@ -58,7 +146,7 @@ async def health() -> dict[str, str]:
     operation_id="chat",
     response_model=ChatResponsePayload,
 )
-async def chat(request: ChatRequest) -> Response:
+async def chat(request: Annotated[ChatRequest, Body(openapi_examples=CHAT_EXAMPLES)]) -> Response:
     if settings.backend_mode.lower() == "databricks":
         payload = await handle_databricks_chat(request)
     else:
