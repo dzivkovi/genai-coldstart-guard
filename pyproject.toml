@@ -1,6 +1,6 @@
 [project]
 name = "genai-coldstart-guard"
-version = "0.1.0"
+version = "1.0.0"
 description = "Cold-start aware FastAPI facade/mock for cost-aware Databricks GenAI serving"
 readme = "README.md"
 requires-python = ">=3.10"

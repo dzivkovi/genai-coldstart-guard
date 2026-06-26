@@ -10,7 +10,7 @@ from app.models import ChatRequest, ChatResponsePayload, UserFeedback
 
 app = FastAPI(
     title="genai-coldstart-guard",
-    version="0.1.0",
+    version="1.0.0",
     description="Cold-start aware facade/mock for Databricks GenAI serving.",
     openapi_tags=[
         {
