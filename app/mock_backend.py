@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from typing import Optional
 
 from app.config import settings
 from app.models import ChatRequest, ChatResponsePayload
@@ -11,8 +12,8 @@ from app.responses import error_response, ok_response, stopped_response, updatin
 # wakes on the first request after idle, takes a few seconds to become ready, then
 # scales back to zero after inactivity. Tracking these two timestamps lets the
 # mock:cold_start route show warming -> ready over time, then cold again after idle.
-_cold_start_wake_at: float | None = None
-_cold_start_last_seen: float | None = None
+_cold_start_wake_at: Optional[float] = None
+_cold_start_last_seen: Optional[float] = None
 
 
 def _cold_start_is_ready(now: float) -> bool:

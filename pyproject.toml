@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "genai-coldstart-guard"
-version = "1.0.0"
+version = "1.0.1"
 description = "Cold-start aware FastAPI facade/mock for cost-aware Databricks GenAI serving"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",

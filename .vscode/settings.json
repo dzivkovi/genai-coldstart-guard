@@ -5,6 +5,5 @@
     ".pytest_cache": true,
     ".ruff_cache": true,
     ".venv": true
-  },
-  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe"
+  }
 }
