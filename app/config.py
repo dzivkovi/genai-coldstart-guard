@@ -17,5 +17,9 @@ class Settings(BaseSettings):
     retry_after_seconds: int = 60
     mock_sleep_seconds: float = 0.0
 
+    # Stateful scale-to-zero simulation for the mock:cold_start route.
+    mock_warmup_seconds: float = 10.0
+    mock_idle_reset_seconds: float = 30.0
+
 
 settings = Settings()

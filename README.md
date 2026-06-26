@@ -1,238 +1,62 @@
-# Cold-start aware facade for cost-aware Databricks GenAI serving
+# genai-coldstart-guard
 
-This project preserves a simple existing Java-style AI Agent API contract while helping test and classify Databricks serving behaviours such as:
+Making a Databricks GenAI endpoint say "I'm warming up" instead of "the system is down."
 
-- warm success
-- slow success
-- scale-to-zero cold start / timeout
-- stopped endpoint
-- updating / not ready endpoint
-- upstream 5xx
-- auth/config errors
-- bad request
-- guardrail block
-- no grounding
+## The problem this solves
 
-The first goal is not to build a smarter orchestration engine. The first goal is to stop collapsing every upstream issue into a generic `500` or "system is down" message.
+A client's chat application was telling users **"Sorry, the system is down"** when the system was not down. Their Databricks GenAI serving endpoint runs with scale-to-zero enabled to save cost in lower environments, so the first request after an idle period has to wake the endpoint first. That cold start is slow, something upstream times out, and the user-facing layer collapses the timeout into a generic server-down error.
 
-## Why this exists
-
-Some GenAI systems use custom Databricks model-serving endpoints with scale-to-zero enabled to reduce cost. That is sensible for low-volume or lower environments, but the first request after inactivity may be slow while the serving endpoint wakes up.
-
-A generic error message is misleading in that case. The user-facing message should be closer to:
+The message is simply wrong, and it erodes trust. The endpoint is starting, not broken. The honest message is closer to:
 
 > The AI service is starting after a period of inactivity. Please try again in about a minute.
 
-This repo lets you test those behaviours safely before changing a production Java backend.
+This repository is where that bug was investigated and a fix was prototyped safely, before touching the production Java backend.
 
-## API contract preserved
+## What this repository is (and is not)
 
-The service exposes the same two paths:
+This is a behaviour-validation harness plus a thin facade prototype. It does two jobs:
 
-```text
-POST /agentservice/agent/chat
-POST /agentservice/agent/feedback
-```
+1. Reproduce and classify every state a Databricks serving endpoint can be in (warm, scaled-to-zero/cold, stopped, updating, errored) so the real backend behaviour is understood rather than guessed.
+2. Prototype a facade that turns those states into honest, safe user messages while preserving the existing API contract.
 
-Primary request shape:
+It is not a product, a framework, or a general GenAI gateway. It is a focused sandbox for one specific production bug. The eventual fix may live in the client's Java backend; this POC exists to measure the real behaviour and prove the classification first.
 
-```json
-{
-  "conversation_id": "demo-1",
-  "route": "mock:success_fast",
-  "messages": [
-    {
-      "role": "user",
-      "content": "Hello"
-    }
-  ]
-}
-```
+## Why the cold start is invisible until you hit it
 
-Primary response shape:
+This is the heart of the bug, validated against Databricks docs: a scaled-to-zero endpoint still reports `state.ready = READY`. The status API cannot tell you that the next call will be slow. The cold start only surfaces as latency at inference time, which is exactly why a naive caller mistakes it for an outage. Meanwhile a genuinely stopped endpoint reports `NOT_READY` and returns HTTP 400, and an updating one reports `config_update = IN_PROGRESS`. Same "no answer right now", three very different causes.
 
-```json
-{
-  "conversation_id": "demo-1",
-  "conversation_response_id": "resp-...",
-  "predictions": [
-    {
-      "answer": "This is a successful mock response.",
-      "citations": [],
-      "image_paths": [],
-      "latency": 0.42,
-      "success": true,
-      "error_message": null
-    }
-  ],
-  "user_feedback": null,
-  "error": null,
-  "status": 200
-}
-```
+The endpoint lifecycle diagram, the per-state classification table, and the facade decision flow all live in one canonical place: [docs/databricks-endpoint-states.md](docs/databricks-endpoint-states.md). (GitHub Markdown cannot transclude a shared diagram file, so the diagram has a single home in that doc rather than a duplicated copy here.)
 
-## Quick start
+## Quick start (mock mode, no Databricks needed)
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-
 cp .env.example .env
-
 uvicorn app.main:app --reload --port 8080
 ```
 
-Open Swagger UI:
+Open the Swagger UI at [localhost:8080/docs](http://localhost:8080/docs) to explore the contract interactively.
 
-```text
-http://localhost:8080/docs
-```
-
-## Mock mode
-
-Default mode is mock mode:
-
-```bash
-export BACKEND_MODE=mock
-```
-
-Test:
+Mock mode simulates every endpoint state without a real Databricks connection. For example, watch a cold start get classified honestly:
 
 ```bash
 curl -s -X POST http://localhost:8080/agentservice/agent/chat \
   -H "Content-Type: application/json" \
-  -d '{
-    "conversation_id": "demo-1",
-    "route": "mock:success_fast",
-    "messages": [{"role": "user", "content": "Hello"}]
-  }' | jq
+  -d '{"conversation_id":"demo","route":"mock:cold_start_timeout","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-Supported mock routes:
+To exercise all simulated states at once, run `bash scripts/curl_examples.sh` (the full route list lives in that script).
 
-```text
-mock:success_fast
-mock:success_slow
-mock:cold_start_timeout
-mock:databricks_stopped
-mock:databricks_updating
-mock:bad_request
-mock:auth_error
-mock:upstream_503
-mock:guardrail_blocked
-mock:no_grounding
-```
+## Pointing at a real Databricks endpoint
 
-## Compatibility mode
+Set `BACKEND_MODE=databricks` and the `DATABRICKS_*` variables in `.env`, then call the same path. The facade reads endpoint status, calls inference once, and classifies the outcome into a safe message. All variables are documented in [.env.example](.env.example); what each classified response means is in [docs/databricks-endpoint-states.md](docs/databricks-endpoint-states.md).
 
-Some Java APIs return HTTP 200 even when the payload contains an application-level error status.
+## Scope and rationale
 
-This project supports both behaviours.
-
-Default:
-
-```bash
-export COMPATIBILITY_HTTP_200=true
-```
-
-In compatibility mode, even a warming response returns HTTP `200`, but the payload contains:
-
-```json
-{
-  "status": 503,
-  "error": "The AI service is starting after a period of inactivity. Please try again in about a minute."
-}
-```
-
-To use proper HTTP status codes:
-
-```bash
-export COMPATIBILITY_HTTP_200=false
-```
-
-Then warming returns HTTP `503`.
-
-## Databricks mode
-
-To call a real Databricks endpoint:
-
-```bash
-export BACKEND_MODE=databricks
-export DATABRICKS_HOST="https://adb-xxxx.azuredatabricks.net"
-export DATABRICKS_TOKEN="dapi..."
-export DATABRICKS_ENDPOINT_NAME="your-serving-endpoint"
-export DATABRICKS_TIMEOUT_SECONDS=30
-export COMPATIBILITY_HTTP_200=true
-```
-
-Then call the same app endpoint:
-
-```bash
-curl -s -X POST http://localhost:8080/agentservice/agent/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "conversation_id": "real-test-1",
-    "messages": [{"role": "user", "content": "Reply with one short sentence."}]
-  }' | jq
-```
-
-The facade will:
-
-1. Check Databricks endpoint status.
-2. If stopped/updating/not ready, return a controlled message.
-3. If ready, call inference once.
-4. If inference times out or returns transient failure, classify as warming/unavailable.
-5. Return the preserved AI Agent response shape.
-
-## Important scope
-
-This is intentionally simple.
-
-First release does **not** implement:
-
-- automatic retries
-- polling
-- SSE
-- WebSockets
-- async job table
-- scheduled warm-up
-- production auth
-
-Those can be added later after real latency behaviour is measured.
-
-## Useful environment variables
-
-| Variable | Default | Purpose |
-|---|---:|---|
-| `BACKEND_MODE` | `mock` | `mock` or `databricks` |
-| `COMPATIBILITY_HTTP_200` | `true` | Preserve Java-style HTTP 200 responses |
-| `DATABRICKS_HOST` | empty | Databricks workspace URL |
-| `DATABRICKS_TOKEN` | empty | Databricks PAT/token |
-| `DATABRICKS_ENDPOINT_NAME` | empty | Serving endpoint name |
-| `DATABRICKS_TIMEOUT_SECONDS` | `30` | Inference request timeout |
-| `RETRY_AFTER_SECONDS` | `60` | Hint returned to client |
-| `MOCK_SLEEP_SECONDS` | `0` | Optional global mock delay |
+The first release is deliberately minimal: status check, single inference attempt, honest classification, safe user messages. No retries, polling, SSE, async jobs, or scheduled warm-up; those are deferred until the real cold-start latency is measured. The decision and the alternatives considered are recorded in [docs/adr/ADR-0001-cold-start-facade-poc.md](docs/adr/ADR-0001-cold-start-facade-poc.md), and the original investigation (the "two off states", the discovery goals, the full option space) is in [docs/research/databricks-cold-start-facade-research.md](docs/research/databricks-cold-start-facade-research.md).
 
 ## Safety
 
-Do not commit `.env`.
-
-Do not log tokens.
-
-Do not expose raw Databricks errors to users.
-
-## Recommended first work test
-
-1. Run in mock mode locally.
-2. Confirm the Swagger/OpenAPI contract.
-3. Clone at work.
-4. Set Databricks env vars.
-5. Call against a lower-environment Databricks serving endpoint.
-6. Capture:
-   - endpoint status
-   - first request latency
-   - timeout behaviour
-   - second request latency
-   - response classification
+Do not commit `.env`. Do not log tokens. Do not expose raw Databricks errors to users.

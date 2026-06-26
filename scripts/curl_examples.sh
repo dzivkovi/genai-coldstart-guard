@@ -27,3 +27,11 @@ call_route "mock:auth_error"
 call_route "mock:upstream_503"
 call_route "mock:guardrail_blocked"
 call_route "mock:no_grounding"
+
+# Stateful cold start: poll this repeatedly to watch warming flip to ready.
+call_route "mock:cold_start"
+
+# State injection: drive any endpoint state through the real classifier.
+call_route "mock:state:NOT_READY:NOT_UPDATING"  # -> stopped
+call_route "mock:state:READY:NOT_UPDATING"      # -> ready
+call_route "mock:state:READY:IN_PROGRESS"       # -> updating

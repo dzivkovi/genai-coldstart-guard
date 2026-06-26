@@ -51,26 +51,33 @@ async def get_endpoint_state(client: httpx.AsyncClient) -> dict[str, Any]:
 def classify_state(state: dict[str, Any]) -> str:
     """Map Databricks endpoint state into a simplified facade classification.
 
-    Databricks states vary by endpoint type and API version. Keep this intentionally
-    conservative and log the raw state in real production code.
+    The state object only carries two fields: `ready` (READY | NOT_READY) and
+    `config_update` (NOT_UPDATING | IN_PROGRESS | UPDATE_FAILED | UPDATE_CANCELED).
+    The older API name for the latter is `update_state`. There is NO "STOPPED"
+    enum: a stopped endpoint reports ready=NOT_READY with config_update not
+    IN_PROGRESS, and an inference call returns HTTP 400. Scale-to-zero keeps
+    ready=READY, so a cold start is only visible at inference time, never here.
+    See docs/databricks-endpoint-states.md for the validated model.
     """
 
     ready = str(state.get("ready", "")).upper()
-    update_state = str(state.get("update_state", "")).upper()
-    config_update = str(state.get("config_update", "")).upper()
+    # config_update is the current field; update_state is the older name.
+    config_update = str(state.get("config_update", state.get("update_state", ""))).upper()
 
-    raw_text = " ".join([ready, update_state, config_update, str(state)]).upper()
-
-    if "STOPPED" in raw_text:
-        return "stopped"
-
-    if "UPDATING" in raw_text or "NOT_READY" in raw_text or "NOTREADY" in raw_text:
+    if config_update == "IN_PROGRESS":
         return "updating"
+
+    if config_update in {"UPDATE_FAILED", "UPDATE_CANCELED"}:
+        return "updating"
+
+    if ready == "NOT_READY":
+        # NOT_READY with no in-progress update means the endpoint is stopped.
+        return "stopped"
 
     if ready == "READY":
         return "ready"
 
-    # Unknown status: avoid sending real user workload until understood.
+    # Unknown shape: avoid sending real user workload until understood.
     return "updating"
 
 
@@ -182,6 +189,15 @@ async def handle_databricks_chat(request: ChatRequest) -> ChatResponsePayload:
                 return warming_response(request, latency=time.perf_counter() - start)
 
             if status_code in {401, 403}:
+                return error_response(
+                    request,
+                    status_code=503,
+                    latency=time.perf_counter() - start,
+                    message="The AI service is temporarily unavailable.",
+                )
+
+            if status_code == 404:
+                # Wrong/deleted endpoint: config error internally, safe message out.
                 return error_response(
                     request,
                     status_code=503,
