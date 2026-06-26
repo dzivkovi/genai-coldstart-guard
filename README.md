@@ -27,7 +27,7 @@ This is the heart of the bug, validated against Databricks docs: a scaled-to-zer
 
 ![Databricks serving endpoint lifecycle](images/endpoint-lifecycle.png)
 
-The per-state classification table and the facade decision flow are in [docs/databricks-endpoint-states.md](docs/databricks-endpoint-states.md).
+The per-state classification table, the facade decision flow, and a traceability table mapping each Swagger example to a Databricks state and source document are in [docs/databricks-endpoint-states.md](docs/databricks-endpoint-states.md).
 
 ## Solution space: what we considered and what we shipped
 

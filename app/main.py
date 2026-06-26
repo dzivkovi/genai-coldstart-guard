@@ -142,7 +142,12 @@ CHAT_EXAMPLES = {
     "/agentservice/agent/chat",
     tags=["AI Agents"],
     summary="Chat with an AI Agent",
-    description="Send messages to an AI agent and receive predictions with sources",
+    description=(
+        "Send messages to an AI agent and receive predictions with sources. "
+        "In mock mode, pick a request example from the dropdown to simulate an outcome; "
+        "each example maps to a Databricks endpoint state in the "
+        "[traceability table](https://github.com/dzivkovi/genai-coldstart-guard/blob/main/docs/databricks-endpoint-states.md)."
+    ),
     operation_id="chat",
     response_model=ChatResponsePayload,
 )

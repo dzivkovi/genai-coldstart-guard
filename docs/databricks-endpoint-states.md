@@ -97,6 +97,41 @@ flowchart TD
     INV -->|"400"| BR["request_error - 400"]
 ```
 
+## Traceability: dropdown example -> state -> source
+
+Every request example in the Swagger dropdown traces to a facade outcome and, for the endpoint-lifecycle cases, to a node in Diagram 1 and a real Databricks signal. The mapping is executable, not just prose: the state -> outcome step is proven by `tests/test_classify_state.py`, and the route -> response step by `tests/test_mock_routes.py`.
+
+**Endpoint-lifecycle states** (these correspond to nodes in Diagram 1):
+
+| Swagger example (route) | Facade outcome (payload status) | Diagram 1 node | Real Databricks signal | Source |
+| --- | --- | --- | --- | --- |
+| Warm success (`mock:success_fast`) | `ok` / 200 | Ready | `ready=READY`, `config_update=NOT_UPDATING`, inference 200 | [manage], [score] |
+| Slow success (`mock:success_slow`) | `ok` / 200 | Ready (scaled-to-zero, woke in time) | `ready=READY`, slow first inference | [timeouts] |
+| Cold start / warming (`mock:cold_start_timeout`) | `warming` / 503 | Ready (scaled-to-zero) | `ready=READY`, inference times out warming up | [timeouts] |
+| Cold start lifecycle (`mock:cold_start`) | `warming` then `ok` | Ready (scale-to-zero wake) | same; warm-up only visible at inference time | [timeouts] |
+| Endpoint stopped (`mock:databricks_stopped`) | `stopped` / 503 | Stopped | `ready=NOT_READY`, `config_update=NOT_UPDATING`, inference 400 | [manage] |
+| Endpoint updating (`mock:databricks_updating`) | `updating` / 503 | Updating | `config_update=IN_PROGRESS` | [state], [sdk] |
+| State -> ready (`mock:state:READY:NOT_UPDATING`) | `ready` / 200 | Ready | literal state through `classify_state()` | [sdk] |
+| State -> stopped (`mock:state:NOT_READY:NOT_UPDATING`) | `stopped` / 503 | Stopped | literal state | [sdk] |
+| State -> updating (`mock:state:READY:IN_PROGRESS`) | `updating` / 503 | Updating | literal state | [sdk] |
+
+**Request-level outcomes** (the endpoint is READY; these are not lifecycle states, so they have no Diagram 1 node):
+
+| Swagger example (route) | Facade outcome (payload status) | Where it originates | Source |
+| --- | --- | --- | --- |
+| Bad request (`mock:bad_request`) | `request_error` / 400 | inference returns 400 on a READY endpoint (bad payload/schema) | [score] |
+| Guardrail blocked (`mock:guardrail_blocked`) | `request_error` / 400 | application guardrail, not a Databricks endpoint state | application-level |
+| No grounding (`mock:no_grounding`) | `ok` / 200 | model answers "not enough information"; endpoint is healthy | application-level |
+| Auth/config error (`mock:auth_error`) | `unavailable` / 503 | status or inference returns 401/403 (missing CAN_QUERY) | [manage] |
+| Upstream unavailable (`mock:upstream_503`) | `warming` / 503 | transient 502/503/504 (and 429) from serving or gateway | [limits], [timeouts] |
+
+[manage]: https://docs.databricks.com/aws/en/machine-learning/model-serving/manage-serving-endpoints
+[state]: https://docs.databricks.com/api/workspace/servingendpoints/get
+[sdk]: https://databricks-sdk-py.readthedocs.io/en/latest/dbdataclasses/serving.html
+[timeouts]: https://docs.databricks.com/aws/en/machine-learning/model-serving/model-serving-timeouts
+[score]: https://docs.databricks.com/aws/en/machine-learning/model-serving/score-custom-model-endpoints
+[limits]: https://docs.databricks.com/aws/en/machine-learning/model-serving/model-serving-limits
+
 ## How classify_state works (and the bug that was fixed)
 
 The original `app/databricks_client.py` `classify_state()` detected stopped by string-matching:
