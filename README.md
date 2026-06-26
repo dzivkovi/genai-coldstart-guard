@@ -25,7 +25,25 @@ It is not a product, a framework, or a general GenAI gateway. It is a focused sa
 
 This is the heart of the bug, validated against Databricks docs: a scaled-to-zero endpoint still reports `state.ready = READY`. The status API cannot tell you that the next call will be slow. The cold start only surfaces as latency at inference time, which is exactly why a naive caller mistakes it for an outage. Meanwhile a genuinely stopped endpoint reports `NOT_READY` and returns HTTP 400, and an updating one reports `config_update = IN_PROGRESS`. Same "no answer right now", three very different causes.
 
-The endpoint lifecycle diagram, the per-state classification table, and the facade decision flow all live in one canonical place: [docs/databricks-endpoint-states.md](docs/databricks-endpoint-states.md). (GitHub Markdown cannot transclude a shared diagram file, so the diagram has a single home in that doc rather than a duplicated copy here.)
+![Databricks serving endpoint lifecycle](images/endpoint-lifecycle.png)
+
+The per-state classification table and the facade decision flow are in [docs/databricks-endpoint-states.md](docs/databricks-endpoint-states.md).
+
+## Solution space: what we considered and what we shipped
+
+Improving the cold-start experience was one point on a spectrum of options, from "just classify honestly" to "re-architect for streaming". Mapping the whole space first made the trade-offs explicit and kept the first fix small. This release ships **Option A**; the rest are the upgrade path, taken only if measured behaviour justifies the extra moving parts.
+
+| Option | Approach | Status |
+| --- | --- | --- |
+| **A** | Classification facade: check status, call inference once, return an honest message. No retry. | **Shipped (this release)** |
+| B | Bounded backend retry (~30-90s) so a short cold start succeeds without the user retrying. | Deferred until real latency is measured |
+| C | Async + polling: return `202 + requestId`, client polls for completion. | Future |
+| D | Dev-only status endpoint to inspect sanitized endpoint state. | Optional |
+| E | Warm-up endpoint that pre-wakes the endpoint before known usage windows. | Optional ops add-on |
+| F | SSE / WebSockets streaming of warm-up progress. | Deferred (often restricted in enterprise) |
+| G | Disable scale-to-zero / keep minimum capacity warm. | Rejected (defeats the cost goal) |
+
+Option A is the only one strictly required to fix the bug (an honest message instead of "system is down"); B-G add machinery and are deferred by design. The decision and full trade-offs are recorded in [ADR-0001](docs/adr/ADR-0001-cold-start-facade-poc.md); the original investigation (the two "off" states, the discovery goals, and the full detail behind each option) is in [the research document](docs/research/databricks-cold-start-facade-research.md).
 
 ## Quick start (mock mode, no Databricks needed)
 
@@ -52,10 +70,6 @@ To exercise all simulated states at once, run `bash scripts/curl_examples.sh` (t
 ## Pointing at a real Databricks endpoint
 
 Set `BACKEND_MODE=databricks` and the `DATABRICKS_*` variables in `.env`, then call the same path. The facade reads endpoint status, calls inference once, and classifies the outcome into a safe message. All variables are documented in [.env.example](.env.example); what each classified response means is in [docs/databricks-endpoint-states.md](docs/databricks-endpoint-states.md).
-
-## Scope and rationale
-
-The first release is deliberately minimal: status check, single inference attempt, honest classification, safe user messages. No retries, polling, SSE, async jobs, or scheduled warm-up; those are deferred until the real cold-start latency is measured. The decision and the alternatives considered are recorded in [docs/adr/ADR-0001-cold-start-facade-poc.md](docs/adr/ADR-0001-cold-start-facade-poc.md), and the original investigation (the "two off states", the discovery goals, the full option space) is in [docs/research/databricks-cold-start-facade-research.md](docs/research/databricks-cold-start-facade-research.md).
 
 ## Safety
 

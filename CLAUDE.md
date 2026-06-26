@@ -17,6 +17,9 @@ pytest                            # run all tests
 pytest tests/test_mock_routes.py::test_success_fast   # single test
 ruff check .                      # lint (line-length 100)
 bash scripts/curl_examples.sh     # exercise every mock route against a running server
+
+# Regenerate the README lifecycle diagram after editing docs/endpoint-lifecycle.mmd
+mmdc -i docs/endpoint-lifecycle.mmd -o images/endpoint-lifecycle.png -b white -w 760
 ```
 
 ## Architecture

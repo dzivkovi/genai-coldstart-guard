@@ -1,0 +1,37 @@
+stateDiagram-v2
+    [*] --> Creating
+    Creating --> Ready: deploy ok
+    Creating --> UpdateFailed: deploy failed
+
+    Ready --> Updating: config update
+    Updating --> Ready: update ok
+    Updating --> UpdateFailed: update failed
+    UpdateFailed --> Updating: retry / fix
+
+    Ready --> Stopped: admin stop
+    Stopped --> Updating: admin start, new version
+
+    Ready --> [*]: delete
+    Stopped --> [*]: delete
+
+    note right of Ready
+        state.ready = READY
+        config_update = NOT_UPDATING
+        Scaled-to-zero lives HERE:
+        0 replicas, but still READY.
+        Cold start is invisible to the
+        status API; it only shows up
+        as latency at inference time.
+    end note
+
+    note right of Updating
+        config_update = IN_PROGRESS
+        (also the state right after Start)
+    end note
+
+    note right of Stopped
+        state.ready = NOT_READY
+        config_update = NOT_UPDATING
+        No STOPPED enum exists.
+        Inference returns HTTP 400.
+    end note
