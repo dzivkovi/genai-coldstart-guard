@@ -2,6 +2,19 @@
 
 Validated against Databricks docs on 2026-06-26 (see sources at bottom). Target deployment is the **AWS flavor** of Databricks. The serving-endpoints REST API, the state enums, and the stopped/scale-to-zero behaviour described here are identical across AWS, Azure, and GCP; only the docs URLs differ. This is the behavioural reference for the facade and a visual scratchpad to check the middle-tier API against while wiring the real endpoint.
 
+## Endpoint types (and which ones cold-start)
+
+Databricks Model Serving serves several endpoint types. Cold start is a property of exactly one of them - custom model serving with scale-to-zero - not of "LLMs" specifically.
+
+| Type | What it serves | Runs in your serving compute? | Scale-to-zero / cold start? |
+| --- | --- | --- | --- |
+| Custom models | Your MLflow models: pyfunc, sklearn, a self-hosted LLM, an agent, or a no-inference routing service | Yes | Yes - this is the cold-start category |
+| Foundation Model APIs (pay-per-token) | Databricks-hosted base models (e.g. Llama), on demand | No (shared) | No - always-on, no customer warm-up |
+| Foundation Model APIs (provisioned throughput) | Dedicated capacity for guaranteed throughput / fine-tuned variants | Yes (provisioned) | Generally warm; scale-to-zero may be configurable - verify |
+| External models | Proxy to third-party providers (OpenAI, Anthropic, ...) | No | No Databricks cold start; latency comes from the provider |
+
+Key point: **"LLM serving endpoint" is not a distinct type** - it is a custom model that happens to be an LLM. A non-LLM routing service deployed as a pyfunc is the **same type** (custom model), with the **same** scale-to-zero / state lifecycle. So a cold start observed on a self-hosted LLM transfers conceptually to that routing service: the LLM-ness is irrelevant; the endpoint type is what matters.
+
 ## The one thing to internalize
 
 The serving endpoint `state` object has exactly **two** fields:
@@ -96,6 +109,15 @@ flowchart TD
     INV -->|"500 / 502 / 503 / 504"| WARM
     INV -->|"400"| BR["request_error - 400"]
 ```
+
+## Cold-start response surface (429 vs timeout)
+
+The `warming` branches above (timeout, transient `5xx`) and the `429` branch are **one cause with a non-deterministic surface**: a scale-to-zero endpoint has zero capacity on the first hit. Databricks queues the request up to a threshold and returns `429` beyond it, so depending on load and concurrency config you may see:
+
+- a **fast `429`** ("starting") - the request overran the queue while no replica was ready (observed on a custom LLM endpoint), or
+- a **slow queue-wait** that returns `200` once a replica is up, or **times out** if warm-up exceeds the client/gateway limit (cold start can be minutes; hard cap 597s).
+
+Databricks does **not** document a single deterministic cold-start response - the fast `429` is observed, not contractual, and depends on load, concurrency config, and model load time. `429` is also ambiguous: the diagram labels it `throttled`, but during a cold start the same `429` means "no replica yet" (warming), and you often cannot tell cold-429 from load-429 by the code alone - both take the same `Retry-After` handling. So classify on the **outcome class** (`429` + timeout + transient `5xx` -> retry-after / `warming`), never on one signal, and **measure the actual surface per endpoint type**. This whole surface applies to **custom model serving only** - Foundation Model APIs and external models have no replica warm-up.
 
 ## Traceability: dropdown example -> state -> source
 
