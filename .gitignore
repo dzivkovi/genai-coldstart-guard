@@ -13,3 +13,6 @@ work/
 print/
 .playwright-mcp/
 
+# Raw chat/code exports - may contain secrets, schema, URLs. Never commit.
+docs/research/consolidated_chat-*.md
+
