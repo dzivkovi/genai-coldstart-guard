@@ -60,6 +60,28 @@ for handler in root.handlers:
 
 Then to turn timing on, set `LOG_LEVEL=DEBUG` in the endpoint's Environment variables (the same screen as `ENABLE_MLFLOW_TRACING`); leave it unset or `INFO` in production. Note `LOG_LEVEL` is a name YOUR code reads (not a reserved Databricks variable), and changing any endpoint env var triggers a redeploy - it is a config change, not a live toggle.
 
+### Detecting the cold-started request (there is no built-in signal)
+
+Databricks gives you NO per-request cold-start marker - not in inference tables, not a response header, not the endpoint state API (`execution_time_ms` does not even include wake time). So to know a slow request was the one that woke a scaled-to-zero replica, you print your own. The reliable hook is the pyfunc `load_context`, which MLflow runs once when the model loads (i.e. when a serving process boots):
+
+```python
+def load_context(self, context):
+    self._boot = time.monotonic()          # monotonic, not wall-clock
+    self._n = 0
+    self._lock = threading.Lock()
+    logging.getLogger().warning("[COLDSTART] worker_boot pid=%d", os.getpid())
+
+def predict(self, context, model_input, params=None):
+    with self._lock:
+        self._n += 1
+        n = self._n
+    logging.getLogger().debug("[COLDSTART] pid=%d cold_first=%s secs_since_boot=%.1f",
+                              os.getpid(), n == 1, time.monotonic() - self._boot)
+    ...
+```
+
+CAVEAT: this is "first request per WORKER," not per replica - a serving container runs several gunicorn workers and each one loads the model and fires `load_context`, so expect one `worker_boot` (and one `cold_first`) per worker per boot; log `os.getpid()` to reconcile. Keep it log-only for a small service (do not add response-schema fields or trace plumbing). A runnable example is in the sample repo https://github.com/dzivkovi/coldstart-echo-mlflow (`register_byvalue.py`). If MLflow Tracing is on (Tier 2), also stamp `mlflow.update_current_trace(tags={"cold_first": ...})` to make the cold request filterable in the trace UI.
+
 ## Tier 2: MLflow Tracing (built-in, richest, but captures data)
 
 MLflow Tracing is Databricks-native observability. Enabling it (`ENABLE_MLFLOW_TRACING=true` on the endpoint) records the inputs, outputs, and timing of instrumented steps as a "trace" - a tree of timed "spans" - and writes it to a configured Delta Inference Table, with a trace UI to inspect individual requests. For a custom pyfunc you mark the steps with `@mlflow.trace` or `with mlflow.start_span(...)`.
