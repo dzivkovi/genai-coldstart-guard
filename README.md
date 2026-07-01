@@ -24,9 +24,9 @@ A rough guide by goal:
 | Cost-sensitive, low or bursty volume | Scale-to-zero, and handle the cold start accurately (what this repo does): classify the first-request delay as "starting," not "system down." |
 | Using a base foundation model | Foundation Model APIs - pay-per-token for low volume (no infra, no cold start); provisioned throughput when you need guaranteed performance. |
 | Calling a third-party model | External models: a governed proxy. No Databricks cold start; cost and latency are the provider's. |
-| A non-model service (routing, APIs, glue code) | Don't host it on Model Serving - it pays the cold-start tax for no model-serving benefit. Use a web-app platform: **Databricks Apps** keeps it in-perimeter (no MLflow packaging, OAuth + Unity Catalog governance, reaches your warehouses and serving endpoints), or an off-platform container service. Keep Databricks for models + vector indexes. It removes the ML-container cold start; it is a warm container, though, not a free scale-to-zero function - measure idle cost and wake latency. |
+| A non-model service (routing, APIs, glue code) | Don't host it on Model Serving - it pays the cold-start tax for no model-serving benefit. Host it on **Databricks Apps** (in-perimeter) or a container platform; keep Databricks for models + vector indexes. |
 
-The full endpoint-type taxonomy and state model are in [docs/databricks-endpoint-states.md](docs/databricks-endpoint-states.md).
+The detail behind these choices lives in the docs: [Apps vs Model Serving](docs/databricks-apps-vs-model-serving.md) (cost vs cold start, with sources), [Latency axes](docs/databricks-latency-axes.md) (the performance fixes), and [the endpoint state model](docs/databricks-endpoint-states.md) (the full endpoint-type taxonomy).
 
 > Databricks' serving options evolve quickly; newer runtimes or announcements may post-date the docs cited here. Treat this as the documented baseline and verify current options for your workspace.
 
@@ -49,19 +49,9 @@ The per-state classification table, the facade decision flow, and a traceability
 
 ## Solution space: what we considered and what we shipped
 
-Improving the cold-start experience was one point on a spectrum of options, from "just classify honestly" to "re-architect for streaming". Mapping the whole space first made the trade-offs explicit and kept the first fix small. This release ships **Option A**; the rest are the upgrade path, taken only if measured behaviour justifies the extra moving parts.
+Improving the cold-start experience was one point on a spectrum, from "just classify the state accurately" to "re-architect for streaming". Mapping the whole space first kept the first fix small. **This release ships Option A** - check status, call inference once, return an accurate "starting" message, no retry. Options B through G (bounded retry, async polling, a warm-up endpoint, streaming, always-warm capacity) are the upgrade path, taken only when measured behaviour justifies the extra moving parts.
 
-| Option | Approach | Status |
-| --- | --- | --- |
-| **A** | Classification facade: check status, call inference once, return an honest message. No retry. | **Shipped (this release)** |
-| B | Bounded backend retry (~30-90s) so a short cold start succeeds without the user retrying. | Deferred until real latency is measured |
-| C | Async + polling: return `202 + requestId`, client polls for completion. | Future |
-| D | Dev-only status endpoint to inspect sanitized endpoint state. | Optional |
-| E | Warm-up endpoint that pre-wakes the endpoint before known usage windows. | Optional ops add-on |
-| F | SSE / WebSockets streaming of warm-up progress. | Deferred (often restricted in enterprise) |
-| G | Disable scale-to-zero / keep minimum capacity warm. | Rejected (defeats the cost goal) |
-
-Option A is the only one strictly required to fix the bug (an honest message instead of "system is down"); B-G add machinery and are deferred by design. The decision and full trade-offs are recorded in [ADR-0001](docs/adr/ADR-0001-cold-start-facade-poc.md); the original investigation (the two "off" states, the discovery goals, and the full detail behind each option) is in [the research document](docs/research/databricks-cold-start-facade-research.md).
+The full option breakdown is in [ADR-0001](docs/adr/ADR-0001-cold-start-facade-poc.md) and [the research document](docs/research/databricks-cold-start-facade-research.md); copy-paste refactor prompts for testing each one are in [docs/cold-start-experiments.md](docs/cold-start-experiments.md).
 
 ## Quick start (mock mode, no Databricks needed)
 
