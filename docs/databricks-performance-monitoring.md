@@ -82,6 +82,12 @@ def predict(self, context, model_input, params=None):
 
 CAVEAT: this is "first request per WORKER," not per replica - a serving container runs several gunicorn workers and each one loads the model and fires `load_context`, so expect one `worker_boot` (and one `cold_first`) per worker per boot; log `os.getpid()` to reconcile. Keep it log-only for a small service (do not add response-schema fields or trace plumbing). A runnable example is in the sample repo https://github.com/dzivkovi/coldstart-echo-mlflow (`register_byvalue.py`). If MLflow Tracing is on (Tier 2), also stamp `mlflow.update_current_trace(tags={"cold_first": ...})` to make the cold request filterable in the trace UI.
 
+### Logging slow calls (log by exception)
+
+Same idea as the cold-start marker, applied to latency: measure each request's duration and emit ONE line only when the call is interesting - the cold-first request, an error, or slower than a threshold (`SLOW_REQUEST_LOG_THRESHOLD_SECONDS`). A healthy fast call logs nothing, so the signal stays quiet until something is worth reading; a slow call still succeeds and leaves a breadcrumb with its phase breakdown. The threshold is LOG-ONLY - it never times out or interrupts a request.
+
+Set the threshold to your team's business-approved SLA. That SLA is one of two different things - time-to-first-token or time-to-full-response ([Axis 7](databricks-latency-axes.md)) - and they are not interchangeable. Honest limit: a synchronous pyfunc endpoint can only measure time-to-FULL-response (there is no first byte to time), so here "slow" means the full response crossed the threshold (the sample uses 8s, the old web "8-second rule"). Time-to-first-token only becomes measurable on a streaming-capable endpoint.
+
 ## Tier 2: MLflow Tracing (built-in, richest, but captures data)
 
 MLflow Tracing is Databricks-native observability. Enabling it (`ENABLE_MLFLOW_TRACING=true` on the endpoint) records the inputs, outputs, and timing of instrumented steps as a "trace" - a tree of timed "spans" - and writes it to a configured Delta Inference Table, with a trace UI to inspect individual requests. For a custom pyfunc you mark the steps with `@mlflow.trace` or `with mlflow.start_span(...)`.
