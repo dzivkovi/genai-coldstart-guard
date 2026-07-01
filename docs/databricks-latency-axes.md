@@ -12,7 +12,7 @@ A request often does lookups whose result isn't used to produce the answer - res
 
 ## Axis 2: per-request point reads against a SQL Warehouse
 
-A SQL Warehouse is an analytical engine - JVM startup, query planning, no connection pooling, and a 2-6s serverless cold start. Using it for per-request OLTP point reads (identity, history, settings) puts that cost in the hot path. **Fix:** put per-request state on Lakebase (serverless Postgres - pooled, sub-second, scales to zero). Detail and sources: [Databricks Apps vs Model Serving](databricks-apps-vs-model-serving.md).
+A SQL Warehouse is an analytical engine - JVM startup, query planning, no connection pooling, and a 2-6s serverless cold start. Using it for per-request OLTP point reads (identity, history, settings) puts that cost in the hot path. The naming makes this easy to miss: a "Delta table" or "lakehouse" sounds like a general-purpose database but is analytical, and its ACID transactions are about batch-write consistency, not low-latency single-row operations. **Fix:** put per-request state on Lakebase (serverless Postgres - pooled, sub-second, scales to zero). Background on why the names hide this: [Databricks storage: analytical vs transactional](databricks-storage-analytical-vs-transactional.md). Detail and sources: [Databricks Apps vs Model Serving](databricks-apps-vs-model-serving.md).
 
 ## Axis 3: a liveness check on every connection checkout
 

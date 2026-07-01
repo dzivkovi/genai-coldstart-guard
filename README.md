@@ -84,6 +84,7 @@ Set `BACKEND_MODE=databricks` and the `DATABRICKS_*` variables in `.env`, then c
 - [docs/databricks-endpoint-states.md](docs/databricks-endpoint-states.md) - the validated endpoint state model, cold-start classification, and the state/decision diagrams.
 - [docs/databricks-apps-vs-model-serving.md](docs/databricks-apps-vs-model-serving.md) - where to host a non-model service: cost vs cold start, Apps vs Model Serving (fact-checked, with sources).
 - [docs/databricks-latency-axes.md](docs/databricks-latency-axes.md) - performance anti-patterns for a request-serving app, and their Databricks-native fixes.
+- [docs/databricks-storage-analytical-vs-transactional.md](docs/databricks-storage-analytical-vs-transactional.md) - the OLAP-vs-OLTP distinction the Databricks names hide: Delta / lakehouse / warehouse (analytical) vs Lakebase / Postgres (transactional), and which to use for sessions, logs, and hot-path state.
 - [docs/cold-start-experiments.md](docs/cold-start-experiments.md) - the full option space (A-G) and copy-paste refactor prompts.
 - [docs/adr/ADR-0001-cold-start-facade-poc.md](docs/adr/ADR-0001-cold-start-facade-poc.md) - the architecture decision record.
 - [docs/research/databricks-cold-start-facade-research.md](docs/research/databricks-cold-start-facade-research.md) - the original investigation.
