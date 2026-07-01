@@ -77,7 +77,7 @@ To exercise all simulated states at once, run `bash scripts/curl_examples.sh` (t
 
 ## Pointing at a real Databricks endpoint
 
-Set `BACKEND_MODE=databricks` and the `DATABRICKS_*` variables in `.env`, then call the same path. The facade reads endpoint status, calls inference once, and classifies the outcome into a safe message. All variables are documented in [.env.example](.env.example); what each classified response means is in [docs/databricks-endpoint-states.md](docs/databricks-endpoint-states.md).
+Set the `DATABRICKS_*` variables in `.env`, then call the same path with **no `route` field**: any request without a `route` is forwarded to the real endpoint. The facade reads endpoint status, calls inference once, and classifies the outcome into a safe message. The `mock:*` simulation routes stay available side by side when `MOCK_ENABLED=true`, so you can demo a classified message and the live answer back to back without a restart. All variables are documented in [.env.example](.env.example); what each classified response means is in [docs/databricks-endpoint-states.md](docs/databricks-endpoint-states.md).
 
 ## Documentation
 

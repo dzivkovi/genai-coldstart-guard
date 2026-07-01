@@ -40,6 +40,8 @@ BACKEND_MODE=mock
 BACKEND_MODE=databricks
 ```
 
+> Superseded: the two-mode `BACKEND_MODE` switch was later collapsed to route-driven dispatch with a single `MOCK_ENABLED` gate (mocks off by default, so a bare production deploy cannot be tricked into faking success). Dispatch is now driven by the request `route` field: no route hits the real endpoint, a `mock:*` route runs a simulation when `MOCK_ENABLED=true`, and any other route returns a controlled 400. The mock behaviours below still apply, now selected per-request by a `mock:*` route rather than by a server-wide mode.
+
 In mock mode, the POC simulates common behaviours:
 
 - warm success

@@ -1,8 +1,16 @@
+import pytest
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def enable_mocks(monkeypatch):
+    """Mocks are off by default (secure default); these tests exercise the mock routes."""
+    monkeypatch.setattr(settings, "mock_enabled", True)
 
 
 def test_success_fast():
@@ -102,3 +110,33 @@ def test_state_injection_ready():
     body = response.json()
     assert body["status"] == 200
     assert body["predictions"][0]["success"] is True
+
+
+def test_mock_route_disabled_returns_400(monkeypatch):
+    # Override the autouse fixture: with mocks off, a mock:* route must fail loud.
+    monkeypatch.setattr(settings, "mock_enabled", False)
+    response = client.post(
+        "/agentservice/agent/chat",
+        json={
+            "conversation_id": "test",
+            "route": "mock:success_fast",
+            "messages": [{"role": "user", "content": "hello"}],
+        },
+    )
+    body = response.json()
+    assert body["status"] == 400
+    assert "disabled" in body["error"].lower()
+
+
+def test_unknown_route_returns_400():
+    response = client.post(
+        "/agentservice/agent/chat",
+        json={
+            "conversation_id": "test",
+            "route": "not_a_mock_route",
+            "messages": [{"role": "user", "content": "hello"}],
+        },
+    )
+    body = response.json()
+    assert body["status"] == 400
+    assert "unknown route" in body["error"].lower()

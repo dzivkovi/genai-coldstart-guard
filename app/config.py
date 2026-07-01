@@ -6,7 +6,10 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    backend_mode: str = "mock"
+    # Feature gate for the simulation routes (route="mock:*"). Secure by default:
+    # a bare production deploy cannot be tricked into faking success. Dev quickstart
+    # turns this on via .env (MOCK_ENABLED=true).
+    mock_enabled: bool = False
     compatibility_http_200: bool = True
 
     databricks_host: str = ""

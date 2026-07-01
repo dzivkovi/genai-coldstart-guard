@@ -9,6 +9,7 @@ from app.config import settings
 from app.databricks_client import handle_databricks_chat
 from app.mock_backend import handle_mock_chat
 from app.models import ChatRequest, ChatResponsePayload, UserFeedback
+from app.responses import error_response
 
 app = FastAPI(
     title="genai-coldstart-guard",
@@ -45,10 +46,10 @@ def to_http_response(payload: ChatResponsePayload) -> JSONResponse:
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
+async def health() -> dict[str, object]:
     return {
         "status": "ok",
-        "backend_mode": settings.backend_mode,
+        "mock_enabled": settings.mock_enabled,
     }
 
 
@@ -62,9 +63,19 @@ def _example(route: str) -> dict:
 
 
 # Named request examples rendered as a dropdown in Swagger. Documentation only
-# (OpenAPI metadata): they do not constrain the `route` field or change behaviour.
-# They describe mock-mode outcomes; in databricks mode `route` is ignored.
+# (OpenAPI metadata). Dispatch is driven by the `route` field: no route hits the
+# real endpoint, a `mock:*` route runs a simulation (when MOCK_ENABLED=true).
 CHAT_EXAMPLES = {
+    "real_passthrough": {
+        "summary": "REAL passthrough (pick this to hit the live endpoint)",
+        "description": (
+            "No `route` field, so this body is forwarded to the real serving endpoint and you "
+            "get its actual answer (and real latency, including any cold start). Every OTHER "
+            "example below carries a `mock:*` route and runs a simulation instead - those work "
+            "only when the server was started with MOCK_ENABLED=true."
+        ),
+        "value": {"messages": [{"role": "user", "content": "hello"}], "conversation_id": "demo-1"},
+    },
     "warm_success": {
         "summary": "Warm success (payload 200)",
         "description": "Endpoint is warm; returns a normal answer.",
@@ -144,18 +155,30 @@ CHAT_EXAMPLES = {
     summary="Chat with an AI Agent",
     description=(
         "Send messages to an AI agent and receive predictions with sources. "
-        "In mock mode, pick a request example from the dropdown to simulate an outcome; "
-        "each example maps to a Databricks endpoint state in the "
-        "[traceability table](https://github.com/dzivkovi/genai-coldstart-guard/blob/main/docs/databricks-endpoint-states.md)."
+        "**The request `route` field drives dispatch.** With no `route` the body is "
+        "forwarded to the real endpoint (pick the **REAL passthrough** example). A `mock:*` "
+        "route simulates an outcome and requires the server to run with `MOCK_ENABLED=true`; "
+        "each mock example maps to a Databricks endpoint state in the "
+        "[traceability table](https://github.com/dzivkovi/genai-coldstart-guard/blob/main/docs/databricks-endpoint-states.md). "
+        "Any other (non-`mock:`) route returns a controlled 400."
     ),
     operation_id="chat",
     response_model=ChatResponsePayload,
 )
 async def chat(request: Annotated[ChatRequest, Body(openapi_examples=CHAT_EXAMPLES)]) -> Response:
-    if settings.backend_mode.lower() == "databricks":
+    route = request.route or ""
+    if not route:
+        # No route -> reality: forward to the real serving endpoint.
         payload = await handle_databricks_chat(request)
+    elif route.startswith("mock:"):
+        # Simulation route -> only honoured when mocks are enabled for this server.
+        if settings.mock_enabled:
+            payload = await handle_mock_chat(request)
+        else:
+            payload = error_response(request, status_code=400, message="Mock routes are disabled here.")
     else:
-        payload = await handle_mock_chat(request)
+        # Unknown non-mock route -> fail loud rather than silently treat it as real.
+        payload = error_response(request, status_code=400, message=f"Unknown route: {route}")
 
     return to_http_response(payload)
 
