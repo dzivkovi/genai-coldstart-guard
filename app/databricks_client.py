@@ -82,16 +82,30 @@ def classify_state(state: dict[str, Any]) -> str:
 
 
 def build_databricks_payload(request: ChatRequest) -> dict[str, Any]:
-    """Build a generic OpenAI-style payload from the preserved Java chat request.
+    """Build an MLflow scoring-envelope payload for a custom pyfunc endpoint.
 
-    Adjust this function at work if the actual Databricks endpoint expects a different
-    schema, such as /invocations dataframe_split or a custom agent schema.
+    Custom Model Serving endpoints (the echo harness, or a request-router endpoint) take
+    the `dataframe_records` envelope with model-specific columns - here `prompt`, the
+    latest user message. For an OpenAI-compatible chat / Foundation Model endpoint, send
+    `messages` + `max_tokens` instead (that is the other family - see git history).
+
+    Note the intentional asymmetry: the OUTBOUND payload here is pyfunc-first, but
+    `extract_answer` below stays backward-compatible with BOTH the pyfunc `predictions`
+    shape and the OpenAI `choices` shape, so a switch of endpoint family only needs this
+    function changed, not the extractor.
     """
 
-    return {
-        "messages": [message.model_dump() for message in request.messages],
-        "max_tokens": 512,
-    }
+    prompt = ""
+    for message in reversed(request.messages):
+        if message.role == "user":
+            prompt = message.content
+            break
+    # Fallback: if there is no user turn (only system/assistant), use the last message.
+    # Intentional - the facade forwards whatever it was given rather than rejecting it.
+    if not prompt and request.messages:
+        prompt = request.messages[-1].content
+
+    return {"dataframe_records": [{"prompt": prompt}]}
 
 
 async def invoke_databricks(client: httpx.AsyncClient, request: ChatRequest) -> dict[str, Any]:
@@ -134,8 +148,18 @@ def extract_answer(payload: dict[str, Any]) -> str:
         if "text" in choice:
             return str(choice["text"])
 
-    if "predictions" in payload:
-        return str(payload["predictions"])
+    # MLflow pyfunc scoring shape: {"predictions": [{...}]}. The echo harness returns
+    # {"echo": ..., "fortune": ...}; render those when present, else stringify.
+    predictions = payload.get("predictions")
+    if isinstance(predictions, list) and predictions:
+        first = predictions[0]
+        if isinstance(first, dict):
+            parts = [str(first[k]) for k in ("echo", "fortune") if first.get(k)]
+            if parts:
+                return " - ".join(parts)
+        return str(first)
+    if predictions is not None:
+        return str(predictions)
 
     return str(payload)
 
@@ -150,11 +174,11 @@ async def handle_databricks_chat(request: ChatRequest) -> ChatResponsePayload:
     - does not retry.
     """
 
-    _validate_config()
     start = time.perf_counter()
 
     async with httpx.AsyncClient() as client:
         try:
+            _validate_config()  # inside the try so DatabricksConfigError is caught below
             state = await get_endpoint_state(client)
             state_class = classify_state(state)
 
