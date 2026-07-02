@@ -45,7 +45,7 @@ async def handle_mock_chat(request: ChatRequest) -> ChatResponsePayload:
     if settings.mock_sleep_seconds > 0:
         await asyncio.sleep(settings.mock_sleep_seconds)
 
-    # The dispatcher only routes explicit mock:* requests here.
+    # Only explicit mock:* routes reach this handler (see the route dispatch in main.py).
     route = request.route or ""
 
     if route == "mock:success_fast":

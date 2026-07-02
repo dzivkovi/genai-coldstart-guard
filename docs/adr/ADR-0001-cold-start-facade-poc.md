@@ -73,7 +73,7 @@ The first implementation will not add automatic retries, polling, SSE, WebSocket
 - Keeps the first experiment small and understandable.
 - Preserves the current client-facing API contract.
 - Allows local development without depending on Databricks availability.
-- Allows office testing against a real Databricks endpoint using environment variables.
+- Allows integration testing against a real Databricks endpoint using environment variables.
 - Provides safer user-facing messages for cold-start-like failures.
 - Helps distinguish `scaled to zero`, `stopped`, `updating`, `bad request`, `auth error`, and `upstream unavailable`.
 - Creates a practical implementation of the research and ADR seed without turning it into a large framework.

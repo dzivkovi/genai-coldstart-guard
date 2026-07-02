@@ -154,13 +154,20 @@ CHAT_EXAMPLES = {
     tags=["AI Agents"],
     summary="Chat with an AI Agent",
     description=(
-        "Send messages to an AI agent and receive predictions with sources. "
-        "**The request `route` field drives dispatch.** With no `route` the body is "
-        "forwarded to the real endpoint (pick the **REAL passthrough** example). A `mock:*` "
-        "route simulates an outcome and requires the server to run with `MOCK_ENABLED=true`; "
-        "each mock example maps to a Databricks endpoint state in the "
-        "[traceability table](https://github.com/dzivkovi/genai-coldstart-guard/blob/main/docs/databricks-endpoint-states.md). "
-        "Any other (non-`mock:`) route returns a controlled 400."
+        "Send messages to an AI agent and receive predictions with sources.\n\n"
+        "**One rule decides real vs. simulated: the `route` field in the request body** "
+        "(not which example you picked, not the dropdown label):\n"
+        "- **no `route`** (or empty) -> the **REAL** live endpoint: real answer, real latency, "
+        "including any cold start.\n"
+        "- **`route` starting with `mock:`** -> a **simulated** outcome (needs the server started "
+        "with `MOCK_ENABLED=true`); each maps to a Databricks state in the "
+        "[traceability table](https://github.com/dzivkovi/genai-coldstart-guard/blob/main/docs/databricks-endpoint-states.md).\n"
+        "- **any other `route`** -> a controlled 400.\n\n"
+        "The dropdown items are just presets. The moment you edit one, Swagger relabels it "
+        "**[Modified value]** - that only means *you changed the text*, it says nothing about "
+        "real vs. mock. Your edited request is whichever the rule above makes it: look at its "
+        "`route` field. (Editing the **REAL passthrough** example keeps it real as long as you "
+        "don't add a `route`.)"
     ),
     operation_id="chat",
     response_model=ChatResponsePayload,
