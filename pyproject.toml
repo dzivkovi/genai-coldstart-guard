@@ -28,6 +28,9 @@ packages = ["app"]
 
 [tool.ruff]
 line-length = 100
+# Target runtime is Python 3.9. This makes ruff flag any 3.10+ syntax (match/case, `X | Y`
+# unions in annotations, etc.) so it cannot slip into code that must run on 3.9.
+target-version = "py39"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
